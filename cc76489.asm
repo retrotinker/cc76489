@@ -1,7 +1,7 @@
 	nam	SN76489AN player for Coco
 	ttl	CoCo76489 
 
-TIMVAL	equ	$0112		Extended BASIC's free-running time counter
+CURPOS	equ	$0088		Text screen cursor position for ROM terminal
 
 PIA0D0	equ	$ff00		CoCo hardware definitions
 PIA0C0	equ	$ff01
@@ -13,11 +13,10 @@ PIA1C0	equ	$ff21
 PIA1D1	equ	$ff22
 PIA1C1	equ	$ff23
 
-SSPRREG	equ	$ff7d
-SSPDREG	equ	$ff7e
-
 TXTBASE	equ	$0400		memory map-related definitions
 TXTSIZE	equ	$0200
+
+NUMSNGS	equ	2		HARD-CODED NUMBER OF SONGS IN DATA SECTION!!
 
 	ifdef	ROM
 START	equ	$c000
@@ -28,14 +27,10 @@ START	equ	$0e00
 
 	org	START
 
-INIT	sts	savestk		save status for return to Color BASIC
-	pshs	cc
-	puls	a
-	sta	savecc
+	lda	#$03		setup MPI as needed
+	sta	$ff7f
 
-	jsr	savpias		save PIA configuration
-
-	orcc	#$50		disable IRQ and FIRQ
+INIT	orcc	#$50		disable IRQ and FIRQ
 
 	lda	PIA0C0		disable hsync interrupt generation
 	anda	#$fc
@@ -47,6 +42,23 @@ INIT	sts	savestk		save status for return to Color BASIC
 	tst	PIA0D1
 	sync			wait for vsync interrupt
 
+	jsr	txtinit		put text init and screen display here!
+
+	lda	#$9f		Disable channel 0
+	sta	$ff41
+	nop
+	nop
+	lda	#$bf		Disable channel 1
+	sta	$ff41
+	nop
+	nop
+	lda	#$df		Disable channel 2
+	sta	$ff41
+	nop
+	nop
+	lda	#$ff		Disable channel 3
+	sta	$ff41
+
 	lda	#$34		Enable sound from cartridge
 	sta	PIA0C0
 	lda	#$3f
@@ -54,34 +66,85 @@ INIT	sts	savestk		save status for return to Color BASIC
 	lda	#$3c
 	sta	PIA1C1
 
-	* put text init and screen display here!
-
 RESTART	ldx	#songdat
 
-	lda	#$40
+	lda	#NUMSNGS
+	pshs	a
+
+LOOP	jsr	clrtscn
+
+	clra
 .1?	sync			wait for vsync interrupt
 	tst	PIA0D1
 	deca
 	bne	.1?
 
-LOOP	sync			wait for vsync interrupt
+	jsr	PLAYSNG
+
+	lda	#$9f		Disable channel 0
+	sta	$ff41
+	nop
+	nop
+	lda	#$bf		Disable channel 1
+	sta	$ff41
+	nop
+	nop
+	lda	#$df		Disable channel 2
+	sta	$ff41
+	nop
+	nop
+	lda	#$ff		Disable channel 3
+	sta	$ff41
+
+	dec	,s
+	bne	LOOP
+
+	bra	RESTART
+
+*
+* Play song
+*
+PLAYSNG	lda	,x+		move past header
+	leax	a,x
+
+	ldd	#TXTBASE	write title to screen
+	std	CURPOS
+	ldb	,x+
+.1?	lda	,x+
+        cmpa	#$61		convert lowercase -> uppercase
+        blt	.2?
+        cmpa	#$7a
+        bgt	.2?
+        anda	#$df
+.2?	jsr	[$a002]
+	decb
+	bne	.1?
+
+	ldd	#(TXTBASE+96)	write author to screen
+	std	CURPOS
+	ldb	,x+
+.1?	lda	,x+
+        cmpa	#$61		convert lowercase -> uppercase
+        blt	.2?
+        cmpa	#$7a
+        bgt	.2?
+        anda	#$df
+.2?	jsr	[$a002]
+	decb
+	bne	.1?
+
+.1?	sync			wait for vsync interrupt
 	tst	PIA0D1
-
 	lda	,x+
-	beq	LOOP
+	beq	.1?
 	cmpa	#$ff
-	beq	RESTART
-
-COUNT	ldb	,x+
-	stb	$ff40
+	beq	.3?
+.2?	ldb	,x+
+	stb	$ff41
 	deca
-	bne	COUNT
-
-	ifdef MON09
-	jsr	chkuart
-	endif
-
-	bra	LOOP
+	bne	.2?
+	bra	.1?
+.3?	rts
 
 *
 * txtinit -- setup text screen
@@ -112,92 +175,6 @@ clrtscn	lda	#' '
 	rts
 
 *
-* Save PIA configuration data
-*
-savpias	ldx	#PIA0D0
-	ldy	#savpdat
-	ldd	#$0202
-	pshs	d
-.1?	ldd	,x
-	std	,y++
-	andb	#$fb
-	stb	1,x
-	lda	,x
-	sta	,y+
-	orb	#$04
-	stb	1,x
-	dec	,s
-	beq	.2?
-	leax	2,x
-	bra	.1?
-.2?	lda	#$02
-	sta	,s
-	dec	1,s
-	beq	.3?
-	leax	($20-$2),x
-	bra	.1?
-.3?	leas	2,s
-	rts
-
-*
-* Restore PIA configuration data
-*
-rstpias	ldx	#PIA0D0
-	ldy	#savpdat
-	ldd	#$0202
-	pshs	d
-.1?	ldb	1,x
-	andb	#$fb
-	stb	1,x
-	lda	2,y
-	sta	,x
-	orb	#$04
-	stb	1,x
-	ldd	,y
-	std	,x
-	leay	3,y
-	dec	,s
-	beq	.2?
-	leax	2,x
-	bra	.1?
-.2?	lda	#$02
-	sta	,s
-	dec	1,s
-	beq	.3?
-	leax	($20-$2),x
-	bra	.1?
-.3?	leas	2,s
-	rts
-
-	ifdef MON09
-*
-* Check for user break (development only)
-*
-chkuart	lda	$ff69		Check for serial port activity
-	bita	#$08
-	beq	chkurex
-	lda	$ff68
-	jmp	[$fffe]		Re-enter monitor
-chkurex	rts
-	endif
-
-*
-* Exit the player
-*
-exit 	equ	*
-	ifdef MON09
-	jmp	[$fffe]		Reset!
-	else
-	jsr	clrtscn		clear text screen
-	jsr	rstpias		restore PIA configuration
-	lda	savecc		reenable any interrupts
-	pshs	a
-	puls	cc
-	lds	savestk		restore stack pointer
-	rts			return to RSDOS
-	endif
-
-*
 * Data Declarations
 *
 songdat	includebin	"songinfo.dat"
@@ -208,8 +185,5 @@ songdat	includebin	"songinfo.dat"
 	ifdef	ROM
 	org	DATA
 	endif
-savestk	rmb	2
-savecc	rmb	1
-savpdat	rmb	12
 
 	end	START
