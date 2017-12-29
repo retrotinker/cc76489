@@ -3,7 +3,7 @@
 CFLAGS=-Wall
 
 #TARGETS=cc76489.bin cc76489.wav cc76489.dsk cc76489.ccc cc76489.s19
-TARGETS=cc76489.s19 cc76489.wav cc76489.dsk
+TARGETS=cc76489.ccc
 EXTRA=cc76489.bin cc76489.8k cc76489.16k cc76489.32k
 
 all: $(TARGETS)
